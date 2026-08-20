@@ -388,17 +388,77 @@ export const StorageService = {
   // Users CRUD (Database Users)
   getUsers(): UserAccount[] {
     this.init();
-    return getItem<UserAccount[]>(KEYS.USERS, []);
+    const stored = getItem<UserAccount[]>(KEYS.USERS, []);
+    
+    // Ensure default teacher and admin accounts are always present
+    const hasTeacher = stored.some((u) => u.role === 'GURU' || u.username.toLowerCase() === 'guru01' || u.username.toLowerCase() === 'admin');
+    if (!hasTeacher) {
+      const defaultTeacherAccounts: UserAccount[] = [
+        {
+          id_user: 'usr-teacher-1',
+          username: 'guru01',
+          password_hash: 'bismillah123',
+          nama: defaultTeacher.name,
+          role: 'GURU',
+          status: 'AKTIF',
+          email: defaultTeacher.email,
+          nis: defaultTeacher.nip,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id_user: 'usr-teacher-alias',
+          username: 'guru',
+          password_hash: 'bismillah123',
+          nama: defaultTeacher.name,
+          role: 'GURU',
+          status: 'AKTIF',
+          email: defaultTeacher.email,
+          nis: defaultTeacher.nip,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        {
+          id_user: 'usr-admin-1',
+          username: 'admin',
+          password_hash: 'bismillah123',
+          nama: 'Administrator LMS',
+          role: 'GURU',
+          status: 'AKTIF',
+          email: 'admin@smknbojonggambir.sch.id',
+          nis: 'ADMIN',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ];
+      const combined = [...defaultTeacherAccounts, ...stored];
+      setItem(KEYS.USERS, combined);
+      return combined;
+    }
+    
+    return stored;
   },
 
   getUserByUsername(username: string): UserAccount | undefined {
     const clean = username.trim().toLowerCase();
-    return this.getUsers().find(
-      (u) =>
-        u.username.toLowerCase() === clean ||
-        (u.nis && u.nis.toLowerCase() === clean) ||
-        (u.email && u.email.toLowerCase() === clean)
-    );
+    const cleanNoSpace = clean.replace(/\s+/g, '');
+    const users = this.getUsers();
+
+    return users.find((u) => {
+      const uName = (u.username || '').toLowerCase();
+      const uNis = (u.nis || '').toLowerCase();
+      const uEmail = (u.email || '').toLowerCase();
+      const uFullName = (u.nama || '').toLowerCase();
+
+      return (
+        uName === clean ||
+        uName.replace(/\s+/g, '') === cleanNoSpace ||
+        uNis === clean ||
+        uNis.replace(/\s+/g, '') === cleanNoSpace ||
+        uEmail === clean ||
+        uFullName === clean
+      );
+    });
   },
 
   saveUser(user: UserAccount): void {
