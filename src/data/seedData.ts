@@ -35,6 +35,7 @@ export const defaultSettings: AppSettings = {
   xpQuizPerfect: 100,
   xpAssignment: 80,
   xpDailyLogin: 10,
+  gasApiUrl: 'https://script.google.com/macros/s/AKfycbw9leOIRKLMrdVlZK1ucbs3Yq8RHOfNGi_r8Z8f1a7gFw8Q9afT4ZGtVa32AaSJsPaLKw/exec',
 };
 
 export const elementsData: ElementCategory[] = [

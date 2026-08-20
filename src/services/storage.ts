@@ -352,7 +352,12 @@ export const StorageService = {
   // Settings
   getSettings(): AppSettings {
     this.init();
-    return getItem<AppSettings>(KEYS.SETTINGS, defaultSettings);
+    const stored = getItem<AppSettings>(KEYS.SETTINGS, defaultSettings);
+    if (!stored.gasApiUrl) {
+      stored.gasApiUrl = defaultSettings.gasApiUrl;
+      setItem(KEYS.SETTINGS, stored);
+    }
+    return stored;
   },
 
   saveSettings(settings: AppSettings): void {

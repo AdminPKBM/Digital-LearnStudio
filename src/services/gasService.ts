@@ -1,32 +1,144 @@
 /**
- * Google Apps Script (GAS) API Service, Documentation Exporter, and Gas Code Provider
+ * Google Apps Script (GAS) & Google Sheets Integration Engine
+ * Full synchronization of 14 Sheets: Users, Siswa (102 Siswa), Kelas, Materi (16 Modul),
+ * Bank_Soal (240 Soal & Kunci Jawaban), Tugas, Ujian, Nilai, Pengaturan, dll.
  */
 
-export const GAS_CODE_GS = `/**
+import { initialStudents, defaultSettings, assignmentsData } from '../data/seedData';
+import { allModulesData } from '../data/modules';
+import { allQuizzesData } from '../data/quizzes';
+
+export const generateCompleteGASCode = (): string => {
+  // Pre-serialize all 102 students
+  const studentsJSON = JSON.stringify(
+    initialStudents.map((s) => ({
+      ID: s.id,
+      NIS: s.nis,
+      Nama: s.name,
+      Gender: s.gender || 'L',
+      Kelas: s.classGroup,
+      Jurusan: s.jurusan || (s.classGroup === 'X APHP' ? 'APHP' : 'DKV'),
+      XP: s.xp,
+      Level: s.level,
+      StreakDays: s.streakDays,
+      Badges: JSON.stringify(s.badges || ['first_login']),
+      CompletedModules: JSON.stringify(s.completedModuleIds || []),
+      Notes: JSON.stringify(s.notes || {}),
+    }))
+  );
+
+  // Pre-serialize all 16 modules
+  const modulesJSON = JSON.stringify(
+    allModulesData.map((m) => ({
+      ID_Materi: m.id,
+      Elemen: m.elementId,
+      Nama_Elemen: m.elementName,
+      Modul_Ke: m.moduleNumber,
+      Judul: m.title,
+      Waktu_Menit: m.estimatedTimeMinutes,
+      Tingkat_Kesulitan: m.difficulty,
+      Tujuan_Pembelajaran: (m.objectives || []).join(' | '),
+      Ringkasan: m.summary,
+      Konten_Markdown: m.contentMarkdown ? m.contentMarkdown.slice(0, 3000) : '',
+      Gambar_Url: m.imageUrl || '',
+      Video_Url: m.videoUrl || '',
+      File_Url: m.pdfUrl || '',
+      Status: m.status || 'published',
+      Kelas_Tujuan: m.targetClass || 'ALL',
+      Urutan: m.urutan || m.moduleNumber,
+    }))
+  );
+
+  // Pre-serialize all 240 questions from 16 modules (15 questions each)
+  const bankSoalArray: any[] = [];
+  allModulesData.forEach((m) => {
+    const qData = allQuizzesData[m.id];
+    if (qData && qData.questions) {
+      qData.questions.forEach((q, idx) => {
+        const optionLabels = ['A', 'B', 'C', 'D'];
+        bankSoalArray.push({
+          ID: q.id || `${m.id}-Q${idx + 1}`,
+          Modul_ID: m.id,
+          Elemen: m.elementId,
+          Nomor_Soal: idx + 1,
+          Soal: q.question,
+          Opsi_A: q.options[0] || '',
+          Opsi_B: q.options[1] || '',
+          Opsi_C: q.options[2] || '',
+          Opsi_D: q.options[3] || '',
+          Kunci_Jawaban: optionLabels[q.correctAnswer] || 'A',
+          Index_Jawaban: q.correctAnswer,
+          Pembahasan: q.explanation || '',
+          Bobot: 1,
+        });
+      });
+    }
+  });
+  const bankSoalJSON = JSON.stringify(bankSoalArray);
+
+  // Pre-serialize assignments
+  const assignmentsArray = Object.values(assignmentsData).map((a) => ({
+    ID: a.id,
+    Modul_ID: a.moduleId,
+    Judul: a.title,
+    Instruksi: a.instruction,
+    Tipe_File: (a.allowedTypes || []).join(', '),
+    Nilai_Maksimal: a.maxScore || 100,
+    Kelas_Tujuan: 'ALL',
+    Deadline: '2026-12-31',
+  }));
+  const assignmentsJSON = JSON.stringify(assignmentsArray);
+
+  return `/**
  * ==============================================================================
- * LMS 1 MATA PELAJARAN — BACKEND GOOGLE APPS SCRIPT (Code.gs)
+ * LMS DIGITAL LEARNSTUDIO — GOOGLE APPS SCRIPT BACKEND (Code.gs)
  * ==============================================================================
- * Guru: Ruli Lesmana, S.T. Gr | SMKN Bojonggambir
- * Database: Google Sheets (14 Sheets)
- * Storage: Google Drive (LMS_1_Mata_Pelajaran/...)
+ * Sekolah: SMK Negeri Bojonggambir
+ * Guru Pengampu: Ruli Lesmana, S.T. Gr (081223546686)
+ * Mata Pelajaran: Informatika Fase E (16 Modul, 240 Soal, 102 Siswa)
+ * Database: Google Sheets (14 Tabel Terintegrasi)
+ * Storage: Google Drive
  * ==============================================================================
  */
 
+// Menangani permintaan GET (API Read)
 function doGet(e) {
   var action = e && e.parameter ? e.parameter.action : "ping";
+  
   if (action === "getAllData") {
     return respondJSON({
       status: "success",
       data: fetchAllSheetsData()
     });
   }
+
+  if (action === "getSheetData") {
+    var sheetName = e.parameter.sheetName || "Siswa";
+    return respondJSON({
+      status: "success",
+      data: fetchSingleSheetData(sheetName)
+    });
+  }
+  
+  if (action === "seedAll") {
+    var count = seedAllExistingData();
+    return respondJSON({
+      status: "success",
+      message: "Seluruh data awal (102 Siswa, 16 Modul, 240 Soal & Kunci, dll) berhasil dimuat ke Google Sheets!",
+      recordsCount: count
+    });
+  }
+  
   return respondJSON({
     status: "online",
-    message: "LMS 1 Mata Pelajaran Apps Script Backend is Running!",
+    name: "LMS Digital LearnStudio Apps Script API",
+    school: "SMK Negeri Bojonggambir",
+    teacher: "Ruli Lesmana, S.T. Gr",
     timestamp: new Date().toISOString()
   });
 }
 
+// Menangani permintaan POST (API Write / Sync)
 function doPost(e) {
   try {
     var contents = JSON.parse(e.postData.contents);
@@ -35,29 +147,29 @@ function doPost(e) {
 
     if (action === "syncAll") {
       var result = syncAllDataToSheets(payload);
-      return respondJSON({ status: "success", message: "Data synced successfully", result: result });
+      return respondJSON({ status: "success", message: "Data berhasil disinkronkan ke seluruh Google Sheets", result: result });
     }
 
     if (action === "saveRecord") {
       var sheetName = contents.sheetName;
       saveRecordToSheet(sheetName, payload);
-      return respondJSON({ status: "success", message: "Record saved to " + sheetName });
+      return respondJSON({ status: "success", message: "Data berhasil disimpan ke " + sheetName });
     }
 
     if (action === "deleteRecord") {
       var sheetName = contents.sheetName;
       var id = contents.id;
       deleteRecordFromSheet(sheetName, id);
-      return respondJSON({ status: "success", message: "Record deleted from " + sheetName });
+      return respondJSON({ status: "success", message: "Data ID " + id + " berhasil dihapus dari " + sheetName });
     }
 
     if (action === "uploadDriveFile") {
-      var folderCategory = contents.folderCategory || "Dokumen"; // Materi, Tugas, Jawaban, Soal, Dokumen, Backup
+      var folderCategory = contents.folderCategory || "Dokumen";
       var fileUrl = uploadFileToDrive(contents.fileName, contents.base64Data, contents.mimeType, folderCategory);
       return respondJSON({ status: "success", fileUrl: fileUrl });
     }
 
-    return respondJSON({ status: "error", message: "Unknown action: " + action });
+    return respondJSON({ status: "error", message: "Aksi tidak dikenal: " + action });
   } catch (err) {
     return respondJSON({ status: "error", message: err.toString() });
   }
@@ -68,7 +180,28 @@ function respondJSON(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// Ensure all 14 sheets exist with column headers
+// Schema 14 Sheet
+function getSheetsSchema() {
+  return {
+    "Users": ["ID", "Email", "Role", "Name", "NIP_NIS", "Class", "PhoneWA", "LastLogin"],
+    "Siswa": ["ID", "NIS", "Nama", "Gender", "Kelas", "Jurusan", "XP", "Level", "StreakDays", "Badges", "CompletedModules", "Notes"],
+    "Kelas": ["ID", "Nama_Kelas", "Jurusan", "Kode", "Tahun_Ajaran", "Jumlah_Siswa"],
+    "Materi": ["ID_Materi", "Elemen", "Nama_Elemen", "Modul_Ke", "Judul", "Waktu_Menit", "Tingkat_Kesulitan", "Tujuan_Pembelajaran", "Ringkasan", "Konten_Markdown", "Gambar_Url", "Video_Url", "File_Url", "Status", "Kelas_Tujuan", "Urutan"],
+    "Progress_Materi": ["ID_Progress", "ID_Siswa", "ID_Materi", "Status", "Progress_Percent", "Waktu_Mulai", "Waktu_Selesai", "Terakhir_Diakses"],
+    "Tugas": ["ID", "Modul_ID", "Judul", "Instruksi", "Tipe_File", "Nilai_Maksimal", "Kelas_Tujuan", "Deadline"],
+    "Pengumpulan_Tugas": ["ID", "Tugas_ID", "Modul_ID", "Siswa_ID", "Nama_Siswa", "Kelas_Siswa", "File_Url", "File_Name", "External_Link", "Notes", "Submitted_At", "Status", "Score", "Feedback", "Graded_At"],
+    "Bank_Soal": ["ID", "Modul_ID", "Elemen", "Nomor_Soal", "Soal", "Opsi_A", "Opsi_B", "Opsi_C", "Opsi_D", "Kunci_Jawaban", "Index_Jawaban", "Pembahasan", "Bobot"],
+    "Ujian": ["ID", "Judul", "Deskripsi", "Durasi_Menit", "Jadwal_Mulai", "Jadwal_Selesai", "Nilai_Maksimal", "Kelas_Tujuan", "Is_Published"],
+    "Jawaban_Ujian": ["ID", "Ujian_ID", "Siswa_ID", "Nama_Siswa", "Kelas_Siswa", "Answers_JSON", "Score", "Submitted_At", "Status"],
+    "Absensi": ["ID", "Siswa_ID", "Nama_Siswa", "Kelas", "Tanggal", "Login_Pertama", "Login_Terakhir", "Jumlah_Login", "Status"],
+    "Nilai": ["ID", "Siswa_ID", "Nama_Siswa", "Kelas", "Nilai_Tugas_Avg", "Nilai_Kuis_Avg", "Nilai_Ujian_Avg", "Nilai_Akhir", "Feedback_Umum"],
+    "Pengumuman": ["ID", "Judul", "Konten", "Kelas_Tujuan", "Penulis", "Tanggal", "Is_Pinned"],
+    "Pengaturan": ["Key", "Value"],
+    "Log_Aktivitas": ["ID", "Timestamp", "Role", "User_Name", "Action", "Details"]
+  };
+}
+
+// Inisialisasi Seluruh 14 Sheet dengan Format Desain & Header Keren
 function initSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var schema = getSheetsSchema();
@@ -80,28 +213,119 @@ function initSheets() {
     }
     if (sheet.getLastRow() === 0) {
       sheet.appendRow(schema[sheetName]);
-      sheet.getRange(1, 1, 1, schema[sheetName].length).setFontWeight("bold").setBackground("#0f172a").setFontColor("#38bdf8");
+      var range = sheet.getRange(1, 1, 1, schema[sheetName].length);
+      range.setFontWeight("bold")
+           .setBackground("#0f172a")
+           .setFontColor("#38bdf8")
+           .setFontFamily("Calibri")
+           .setFontSize(11);
+      sheet.setFrozenRows(1);
     }
   }
 }
 
-function getSheetsSchema() {
+/**
+ * SEED ALL EXISTING DATA (1-Click Pengisian Seluruh Database)
+ * Memasukkan 102 Siswa, 16 Modul, 240 Soal & Kunci Jawaban, Tugas, Kelas, Pengaturan, dll.
+ */
+function seedAllExistingData() {
+  initSheets();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var schema = getSheetsSchema();
+
+  // Helper ganti data
+  function populateSheet(sheetName, headers, records) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return;
+    sheet.clearContents();
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length)
+         .setFontWeight("bold")
+         .setBackground("#0f172a")
+         .setFontColor("#38bdf8")
+         .setFontFamily("Calibri")
+         .setFontSize(11);
+    sheet.setFrozenRows(1);
+
+    if (records && records.length > 0) {
+      var rows = records.map(function(item) {
+        return headers.map(function(h) {
+          var val = item[h] !== undefined ? item[h] : item[h.toLowerCase()];
+          if (typeof val === 'object' && val !== null) return JSON.stringify(val);
+          return val !== undefined ? val : "";
+        });
+      });
+      sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+      sheet.autoResizeColumns(1, Math.min(headers.length, 10));
+    }
+  }
+
+  // 1. Data Siswa (102 Siswa SMKN Bojonggambir)
+  var rawStudents = ${studentsJSON};
+  populateSheet("Siswa", schema["Siswa"], rawStudents);
+
+  // 2. Data Materi (16 Modul Informatika Fase E)
+  var rawModules = ${modulesJSON};
+  populateSheet("Materi", schema["Materi"], rawModules);
+
+  // 3. Data Bank Soal (240 Butir Soal + Kunci & Pembahasan)
+  var rawBankSoal = ${bankSoalJSON};
+  populateSheet("Bank_Soal", schema["Bank_Soal"], rawBankSoal);
+
+  // 4. Data Tugas (16 Tugas Praktik)
+  var rawAssignments = ${assignmentsJSON};
+  populateSheet("Tugas", schema["Tugas"], rawAssignments);
+
+  // 5. Data Kelas
+  var rawKelas = [
+    { ID: "KLS-DKV1", Nama_Kelas: "X DKV 1", Jurusan: "Desain Komunikasi Visual", Kode: "DKV-01", Tahun_Ajaran: "2026/2027", Jumlah_Siswa: 40 },
+    { ID: "KLS-DKV2", Nama_Kelas: "X DKV 2", Jurusan: "Desain Komunikasi Visual", Kode: "DKV-02", Tahun_Ajaran: "2026/2027", Jumlah_Siswa: 41 },
+    { ID: "KLS-APHP", Nama_Kelas: "X APHP", Jurusan: "Agribisnis Pengolahan Hasil Pertanian", Kode: "APHP-01", Tahun_Ajaran: "2026/2027", Jumlah_Siswa: 21 }
+  ];
+  populateSheet("Kelas", schema["Kelas"], rawKelas);
+
+  // 6. Data Users
+  var rawUsers = [
+    { ID: "usr-admin", Email: "admin@smknbojonggambir.sch.id", Role: "Admin", Name: "Administrator LMS", NIP_NIS: "ADMIN", Class: "-", PhoneWA: "081223546686", LastLogin: new Date().toISOString() },
+    { ID: "usr-teacher-1", Email: "ruli.lesmana@smknbojonggambir.sch.id", Role: "Guru", Name: "Ruli Lesmana, S.T. Gr", NIP_NIS: "19880512 202221 1 004", Class: "Semua Kelas", PhoneWA: "081223546686", LastLogin: new Date().toISOString() },
+    { ID: "usr-student-demo", Email: "siswa@smknbojonggambir.sch.id", Role: "Siswa", Name: "Ahmad Rizky (Demo)", NIP_NIS: "25261001", Class: "X DKV 1", PhoneWA: "-", LastLogin: new Date().toISOString() }
+  ];
+  populateSheet("Users", schema["Users"], rawUsers);
+
+  // 7. Data Pengaturan
+  var rawSettings = [
+    { Key: "schoolName", Value: "SMK Negeri Bojonggambir" },
+    { Key: "subjectName", Value: "Informatika" },
+    { Key: "curriculum", Value: "Kurikulum Merdeka (Edisi Revisi Fase E)" },
+    { Key: "teacherName", Value: "Ruli Lesmana, S.T. Gr" },
+    { Key: "teacherNip", Value: "19880512 202221 1 004" },
+    { Key: "teacherPhoneWA", Value: "081223546686" },
+    { Key: "passingScoreThreshold", Value: "75" },
+    { Key: "totalModules", Value: "16" },
+    { Key: "totalQuestions", Value: "240" },
+    { Key: "totalStudents", Value: "102" }
+  ];
+  populateSheet("Pengaturan", schema["Pengaturan"], rawSettings);
+
+  // 8. Data Pengumuman
+  var rawAnnouncements = [
+    { ID: "ann-1", Judul: "Selamat Datang di LMS Digital LearnStudio Informatika", Konten: "Silakan pelajari 16 modul ajar mulai dari Berpikir Komputasional (BK-1) hingga Praktik Lintas Bidang (PLB-2). Setiap modul dilengkapi 15 butir kuis evaluasi.", Kelas_Tujuan: "ALL", Penulis: "Ruli Lesmana, S.T. Gr", Tanggal: "2026-08-01", Is_Pinned: true },
+    { ID: "ann-2", Judul: "Jadwal Evaluasi & Ujian Tengah Semester", Konten: "Pastikan seluruh tugas praktik modul 1-8 telah dikumpulkan sebelum batas akhir pengumpulan nilai semester.", Kelas_Tujuan: "ALL", Penulis: "Ruli Lesmana, S.T. Gr", Tanggal: "2026-08-15", Is_Pinned: false }
+  ];
+  populateSheet("Pengumuman", schema["Pengumuman"], rawAnnouncements);
+
+  // 9. Data Ujian
+  var rawExams = [
+    { ID: "exam-uts", Judul: "Penilaian Tengah Semester (PTS) Informatika Fase E", Deskripsi: "Cakupan Materi Elemen BK, TIK, SK, dan JKI (Modul 1 s.d 8)", Durasi_Menit: 60, Jadwal_Mulai: "2026-09-15 08:00", Jadwal_Selesai: "2026-09-20 17:00", Nilai_Maksimal: 100, Kelas_Tujuan: "ALL", Is_Published: true },
+    { ID: "exam-uas", Judul: "Penilaian Akhir Semester (PAS) Informatika Fase E", Deskripsi: "Cakupan Komprehensif Seluruh 8 Elemen (16 Modul)", Durasi_Menit: 90, Jadwal_Mulai: "2026-12-01 08:00", Jadwal_Selesai: "2026-12-10 17:00", Nilai_Maksimal: 100, Kelas_Tujuan: "ALL", Is_Published: true }
+  ];
+  populateSheet("Ujian", schema["Ujian"], rawExams);
+
   return {
-    "Users": ["ID", "Email", "Role", "Name", "NIP_NIS", "Class", "PhoneWA", "LastLogin"],
-    "Siswa": ["ID", "NIS", "Nama", "Kelas", "XP", "Level", "StreakDays", "Badges", "CompletedModules", "Notes"],
-    "Kelas": ["ID", "Nama_Kelas", "Kode", "Tahun_Ajaran", "Jumlah_Siswa"],
-    "Materi": ["ID_Materi", "Judul", "Kategori", "Bab", "Pertemuan", "Tujuan_Pembelajaran", "Pertanyaan_Pemantik", "Isi_Materi", "Gambar_Url", "Video_Url", "File_Url", "Tingkat_Kesulitan", "Wajib", "Kelas_Tujuan", "Status", "Tanggal_Publikasi", "Urutan", "Created_At", "Updated_At"],
-    "Progress_Materi": ["ID_Progress", "ID_Siswa", "ID_Materi", "Status", "Progress_Percent", "Waktu_Mulai", "Waktu_Selesai", "Terakhir_Diakses"],
-    "Tugas": ["ID", "Modul_ID", "Judul", "Instruksi", "Tipe_File", "Nilai_Maksimal", "Kelas_Tujuan", "Deadline", "Lampiran_Url", "Tipe_Pengumpulan"],
-    "Pengumpulan_Tugas": ["ID", "Tugas_ID", "Modul_ID", "Siswa_ID", "Nama_Siswa", "Kelas_Siswa", "File_Url", "File_Name", "External_Link", "Notes", "Submitted_At", "Status", "Score", "Feedback", "Graded_At"],
-    "Bank_Soal": ["ID", "Kategori", "Topik", "Soal", "Tipe", "Opsi_JSON", "Jawaban_Benar", "Pembahasan", "Tingkat_Kesulitan", "Bobot"],
-    "Ujian": ["ID", "Judul", "Deskripsi", "Durasi_Menit", "Jadwal_Mulai", "Jadwal_Selesai", "Nilai_Maksimal", "Kelas_Tujuan", "Question_IDs", "Is_Published"],
-    "Jawaban_Ujian": ["ID", "Ujian_ID", "Siswa_ID", "Nama_Siswa", "Kelas_Siswa", "Answers_JSON", "Score", "Submitted_At", "Status"],
-    "Absensi": ["ID", "Siswa_ID", "Nama_Siswa", "Kelas", "Tanggal", "Pertemuan_Ke", "Status", "Catatan"],
-    "Nilai": ["ID", "Siswa_ID", "Nama_Siswa", "Kelas", "Nilai_Tugas_Avg", "Nilai_Kuis_Avg", "Nilai_Ujian_Avg", "Nilai_Akhir", "Feedback_Umum"],
-    "Pengumuman": ["ID", "Judul", "Konten", "Kelas_Tujuan", "Penulis", "Tanggal", "Is_Pinned"],
-    "Pengaturan": ["Key", "Value"],
-    "Log_Aktivitas": ["ID", "Timestamp", "Role", "User_Name", "Action", "Details"]
+    students: rawStudents.length,
+    modules: rawModules.length,
+    questions: rawBankSoal.length,
+    assignments: rawAssignments.length
   };
 }
 
@@ -133,17 +357,39 @@ function fetchAllSheetsData() {
   return result;
 }
 
+function fetchSingleSheetData(sheetName) {
+  initSheets();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return [];
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  var headers = data[0];
+  var rows = [];
+  for (var i = 1; i < data.length; i++) {
+    var rowObj = {};
+    for (var j = 0; j < headers.length; j++) {
+      rowObj[headers[j]] = data[i][j];
+    }
+    rows.push(rowObj);
+  }
+  return rows;
+}
+
 function syncAllDataToSheets(payload) {
   initSheets();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // Helper to replace table content
   function replaceTableData(sheetName, headers, records) {
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) return;
     sheet.clearContents();
     sheet.appendRow(headers);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#0f172a").setFontColor("#38bdf8");
+    sheet.getRange(1, 1, 1, headers.length)
+         .setFontWeight("bold")
+         .setBackground("#0f172a")
+         .setFontColor("#38bdf8");
+    sheet.setFrozenRows(1);
 
     if (records && records.length > 0) {
       var rows = records.map(function(item) {
@@ -185,13 +431,12 @@ function saveRecordToSheet(sheetName, record) {
     return val !== undefined ? val : "";
   });
 
-  // Check if ID already exists for update
   var data = sheet.getDataRange().getValues();
-  var idIndex = schema.indexOf("ID") >= 0 ? schema.indexOf("ID") : 0;
+  var idIndex = schema.indexOf("ID") >= 0 ? schema.indexOf("ID") : (schema.indexOf("ID_Materi") >= 0 ? schema.indexOf("ID_Materi") : 0);
   var existingRowIndex = -1;
 
   for (var i = 1; i < data.length; i++) {
-    if (data[i][idIndex] == record.id || data[i][idIndex] == record.ID) {
+    if (data[i][idIndex] == record.id || data[i][idIndex] == record.ID || data[i][idIndex] == record.ID_Materi) {
       existingRowIndex = i + 1;
       break;
     }
@@ -219,7 +464,7 @@ function deleteRecordFromSheet(sheetName, id) {
 }
 
 function uploadFileToDrive(fileName, base64Data, mimeType, folderCategory) {
-  var parentFolderName = "LMS_1_Mata_Pelajaran";
+  var parentFolderName = "LMS_Digital_LearnStudio_Bojonggambir";
   var parentFolder;
   var folders = DriveApp.getFoldersByName(parentFolderName);
 
@@ -245,167 +490,34 @@ function uploadFileToDrive(fileName, base64Data, mimeType, folderCategory) {
   return file.getUrl();
 }
 `;
-
-export const SHEETS_STRUCTURE = [
-  { name: 'Users', columns: ['ID', 'Email', 'Role', 'Name', 'NIP_NIS', 'Class', 'PhoneWA', 'LastLogin'] },
-  { name: 'Siswa', columns: ['ID', 'NIS', 'Nama', 'Kelas', 'XP', 'Level', 'StreakDays', 'Badges', 'CompletedModules', 'Notes'] },
-  { name: 'Kelas', columns: ['ID', 'Nama_Kelas', 'Kode', 'Tahun_Ajaran', 'Jumlah_Siswa'] },
-  { name: 'Materi', columns: ['ID', 'Elemen_ID', 'Elemen_Nama', 'Modul_Ke', 'Judul', 'Deskripsi', 'Tujuan', 'Ringkasan', 'Konten_Markdown', 'Gambar_Url', 'Video_Url', 'Link_Url', 'PDF_Url', 'File_Pendukung', 'Kelas_Tujuan', 'Tanggal_Publikasi', 'Is_Published'] },
-  { name: 'Tugas', columns: ['ID', 'Modul_ID', 'Judul', 'Instruksi', 'Tipe_File', 'Nilai_Maksimal', 'Kelas_Tujuan', 'Deadline', 'Lampiran_Url', 'Tipe_Pengumpulan'] },
-  { name: 'Pengumpulan_Tugas', columns: ['ID', 'Tugas_ID', 'Modul_ID', 'Siswa_ID', 'Nama_Siswa', 'Kelas_Siswa', 'File_Url', 'File_Name', 'External_Link', 'Notes', 'Submitted_At', 'Status', 'Score', 'Feedback', 'Graded_At'] },
-  { name: 'Bank_Soal', columns: ['ID', 'Kategori', 'Topik', 'Soal', 'Tipe', 'Opsi_JSON', 'Jawaban_Benar', 'Pembahasan', 'Tingkat_Kesulitan', 'Bobot'] },
-  { name: 'Ujian', columns: ['ID', 'Judul', 'Deskripsi', 'Durasi_Menit', 'Jadwal_Mulai', 'Jadwal_Selesai', 'Nilai_Maksimal', 'Kelas_Tujuan', 'Question_IDs', 'Is_Published'] },
-  { name: 'Jawaban_Ujian', columns: ['ID', 'Ujian_ID', 'Siswa_ID', 'Nama_Siswa', 'Kelas_Siswa', 'Answers_JSON', 'Score', 'Submitted_At', 'Status'] },
-  { name: 'Absensi', columns: ['ID', 'Siswa_ID', 'Nama_Siswa', 'Kelas', 'Tanggal', 'Pertemuan_Ke', 'Status', 'Catatan'] },
-  { name: 'Nilai', columns: ['ID', 'Siswa_ID', 'Nama_Siswa', 'Kelas', 'Nilai_Tugas_Avg', 'Nilai_Kuis_Avg', 'Nilai_Ujian_Avg', 'Nilai_Akhir', 'Feedback_Umum'] },
-  { name: 'Pengumuman', columns: ['ID', 'Judul', 'Konten', 'Kelas_Tujuan', 'Penulis', 'Tanggal', 'Is_Pinned'] },
-  { name: 'Pengaturan', columns: ['Key', 'Value'] },
-  { name: 'Log_Aktivitas', columns: ['ID', 'Timestamp', 'Role', 'User_Name', 'Action', 'Details'] },
-];
-
-export const DRIVE_STRUCTURE = `
-LMS_1_Mata_Pelajaran/
-├── Materi/           (File PDF, Presentasi, & Modul Guru)
-├── Tugas/            (Lampiran Tugas Praktik dari Guru)
-├── Jawaban/          (Upload Jawaban Tugas dari Siswa)
-├── Soal/             (Media Pendukung Bank Soal/Ujian)
-├── Dokumen/          (Laporan Cetak, Rekap Nilai PDF, Sertifikat)
-└── Backup/           (Backup JSON Database Berkala)
-`;
-
-export const README_DOCUMENTATION = `
-# PANDUAN PENGGUNAAN & DEPLOYMENT LMS 1 MATA PELAJARAN
-**Guru/Pengelola:** Ruli Lesmana, S.T. Gr | **Sekolah:** SMKN Bojonggambir
-
----
-
-## 1. INSTALASI & KONFIGURASI FRONTEND
-1. Download seluruh source code dari AI Studio / ZIP.
-2. Jalankan \`npm install\` untuk menginstall seluruh dependency (React 19, Vite, Tailwind CSS v4, Lucide Icons, Recharts, Canvas-Confetti).
-3. Untuk menjalankan mode development lokal: \`npm run dev\`.
-4. Untuk build produksi: \`npm run build\`.
-
----
-
-## 2. SETUP GOOGLE SHEETS & GOOGLE DRIVE BACKEND
-1. Buka [Google Sheets](https://sheets.google.com) baru dan beri nama **LMS_Database_1_Mata_Pelajaran**.
-2. Klik menu **Extensions (Ekstensi)** > **Apps Script**.
-3. Hapus semua kode default, lalu salin seluruh kode dari file \`Code.gs\` yang disediakan di tab **Integrasi Google Apps Script** pada halaman Admin LMS.
-4. Simpan proyek dengan nama **LMS_Backend_Script**.
-5. Jalankan fungsi \`initSheets()\` sekali untuk membuat otomatis seluruh 14 Sheets (\`Users\`, \`Siswa\`, \`Kelas\`, \`Materi\`, \`Tugas\`, \`Pengumpulan_Tugas\`, \`Bank_Soal\`, \`Ujian\`, \`Jawaban_Ujian\`, \`Absensi\`, \`Nilai\`, \`Pengumuman\`, \`Pengaturan\`, \`Log_Aktivitas\`).
-6. Klik **Deploy** > **New Deployment**.
-7. Pilih jenis deployment **Web app**:
-   - **Description:** LMS Backend API v1
-   - **Execute as:** *Me (Email anda)*
-   - **Who has access:** *Anyone (Siapa saja)*
-8. Klik **Deploy** dan berikan izin otorisasi Google Account.
-9. Salin **Web App URL** yang didapatkan (berawalan \`https://script.google.com/macros/s/...\`).
-10. Buka halaman **Panel Admin / Pengaturan** di LMS ini, lalu tempelkan URL tersebut ke kolom **Google Apps Script Web App URL**, lalu klik **Simpan Pengaturan**.
-
----
-
-## 3. PANDUAN PENGGUNAAN GURU
-1. **Login Guru:** Pilih Role **Guru** pada halaman login (\`NIP: 19880512 202221 1 004\`).
-2. **Dashboard Guru:** Melihat ringkasan statistik (Total Siswa, Tugas Belum Dinilai, Average Grade, Absensi %) serta grafik Recharts interaktif.
-3. **Kelola Kelas & Siswa:** Menambah siswa baru, mengedit data siswa, dan mengelompokkan siswa ke kelas target (e.g. X DKV 1, X DKV 2, X APHP).
-4. **Kelola Materi Pembelajaran:** Membuat materi baru dilengkapi Tujuan Pembelajaran, Gambar, Link Video YouTube, PDF, File Pendukung, dan Tanggal Publikasi.
-5. **Kelola Tugas:** Membuat tugas praktik baru, menentukan deadline, dan menilai jawaban siswa serta memberikan feedback.
-6. **Kuis & Bank Soal:** Menambah bank soal (Pilihan Ganda, Benar/Salah, Isian Singkat) dan menyusun jadwal Ujian.
-7. **Absensi:** Melakukan absensi harian per kelas/pertemuan (Hadir, Izin, Sakit, Alpa).
-8. **Cetak Laporan:** Mencetak 8 jenis laporan resmi siap cetak/PDF untuk administrasi sekolah.
-
----
-
-## 4. PANDUAN PENGGUNAAN SISWA
-1. **Login Siswa:** Pilih Role **Siswa**, masukkan NIS (e.g. \`1001\` untuk Ahmad Rizky).
-2. **Dashboard Siswa:** Memantau Nama Mata Pelajaran dinamis, Tugas Aktif, Deadline, Status Tugas (Belum dikerjakan, Sedang dikerjakan, Sudah dikumpulkan, Sudah dinilai, Terlambat), Nilai Terbaru, & Feedback Guru.
-3. **Membaca Materi:** Mempelajari modul materi secara berurutan, menonton video, dan membaca PDF.
-4. **Mengirim Tugas:** Mengunggah file jawaban atau memberikan link tugas sebelum deadline.
-5. **Mengikuti Ujian:** Mengerjakan kuis/ujian dengan timer countdown dan sistem penilaian otomatis untuk soal objektif.
-6. **Sertifikat Kelulusan:** Mengklaim Sertifikat Digital resmi setelah menyelesaikan seluruh modul & ujian.
-`;
-
-export const UPDATE_REPORT = `
-# LAPORAN UPDATE & PENYEMPURNAAN LMS 1 MATA PELAJARAN
-**Tanggal Update:** 8 Agustus 2026 | **Versi:** 2.5.0-Production
-
----
-
-### 1. FITUR YANG DIPERTAHANKAN
-- System Gamification lengkap (XP Points, Leveling System, Badge Unlocks, Confetti Celebrations, Leaderboard).
-- 8 Simulator Sandbox Interaktif (Flowchart Builder, JS Code Playground, Network Topology Builder, Data Visualization Lab, Binary Converter, Number System Converter, Pseudocode Playground, Spreadsheet Simulator).
-- Sistem Sertifikat Kelulusan Digital dengan QR Code verifikasi.
-- Progressive Web App (PWA) Install Banner & Offline LocalStorage Fallback.
-
-### 2. FITUR YANG DIPERBAIKI & DILENGKAPI
-- **Arsitektur Single Subject Focus:** Mata pelajaran diubah menjadi dinamis via \`AppSettings.subjectName\`. Mengubah nama mata pelajaran di Pengaturan akan langsung mengupdate seluruh Navbar, Sidebar, Dashboard Guru, Dashboard Siswa, Rekap Nilai, & Sertifikat.
-- **Sistem Pengumpuan & Status Tugas:** Otomatis menghitung status tugas (\`Belum dikerjakan\` → \`Sedang dikerjakan\` → \`Sudah dikumpulkan\` → \`Sudah dinilai\` → \`Terlambat\`).
-- **Peningkatan Modul Ujian & Bank Soal:** Mendukung 3 jenis soal (Pilihan Ganda, Benar/Salah, Isian Singkat) lengkap dengan auto-grading otomatis untuk soal objektif.
-- **Sistem Absensi Terintegrasi:** Guru dapat melakukan absensi per kelas & pertemuan (Hadir, Izin, Sakit, Alpa) dan siswa dapat melihat riwayat kehadirannya.
-
-### 3. FITUR BARU YANG DITAMBAHKAN
-- **Integrasi Google Apps Script (GAS) API Engine:** Komunikasi dua arah langsung dengan Google Sheets (14 Sheets) & Google Drive API.
-- **Integrasi Google Drive Storage:** Struktur folder otomatis \`LMS_1_Mata_Pelajaran/\` untuk Materi, Tugas, Jawaban, Soal, Dokumen, & Backup.
-- **Cetak Laporan Resmi (8 Template Cetak/PDF):**
-  1. Daftar Siswa
-  2. Rekap Materi Pembelajaran
-  3. Rekap Tugas Praktik
-  4. Rekap Pengumpulan Tugas
-  5. Rekap Nilai Akhir Siswa
-  6. Rekap Hasil Ujian / Kuis
-  7. Rekap Absensi / Kehadiran
-  8. Laporan Perkembangan Siswa Individual
-- **Grafik Dashboard Guru (Recharts):** Grafik Tren Nilai, Grafik Breakdown Kehadiran, Status Pengumpulan Tugas, & Aktivitas Belajar Mingguan.
-
-### 4. DATABASE SHEET YANG DIGUNAKAN
-1. \`Users\`
-2. \`Siswa\`
-3. \`Kelas\`
-4. \`Materi\`
-5. \`Tugas\`
-6. \`Pengumpulan_Tugas\`
-7. \`Bank_Soal\`
-8. \`Ujian\`
-9. \`Jawaban_Ujian\`
-10. \`Absensi\`
-11. \`Nilai\`
-12. \`Pengumuman\`
-13. \`Pengaturan\`
-14. \`Log_Aktivitas\`
-
-### 5. HASIL TESTING & VERIFIKASI
-- **Login & Role Check:** PASS (Guru, Siswa, Admin).
-- **CRUD Operations:** PASS (Materi, Tugas, Bank Soal, Ujian, Absensi, Pengumuman, Siswa).
-- **Auto Grading & Timer:** PASS (Pilihan Ganda, Benar/Salah, Short Answer).
-- **Google Sheets & Drive Sync:** PASS (Direct POST to Apps Script API with LocalStorage Fallback).
-- **Search & Filter:** PASS (NIS, Nama, Kelas, Status, Tanggal).
-- **Responsive Layout:** PASS (Tested on Mobile 375px, Tablet 768px, Laptop 1280px+).
-`;
+};
 
 export const GASService = {
-  // Sync data to Google Apps Script if endpoint is configured
-  async syncToSheets(apiUrl: string, payload: any): Promise<boolean> {
-    if (!apiUrl || !apiUrl.startsWith('http')) return false;
+  // Generate code dynamically with all current datasets
+  getBackendGSCode(): string {
+    return generateCompleteGASCode();
+  },
+
+  // Fetch sheet data
+  async fetchSheetData(apiUrl: string, sheetName: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    if (!apiUrl || !apiUrl.startsWith('http')) {
+      return { success: false, error: 'URL Google Apps Script belum diisi.' };
+    }
     try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'syncAll',
-          payload: payload,
-        }),
-      });
-      const resData = await response.json();
-      return resData.status === 'success';
-    } catch (e) {
-      console.warn('Google Sheets Sync failed, using LocalStorage fallback:', e);
-      return false;
+      const response = await fetch(`${apiUrl}?action=getSheetData&sheetName=${encodeURIComponent(sheetName)}`);
+      const res = await response.json();
+      if (res.status === 'success' || res.data) {
+        return { success: true, data: res.data || [] };
+      }
+      return { success: false, error: res.message || 'Gagal mengambil data sheet.' };
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) };
     }
   },
 
-  // Save single record
-  async saveRecord(apiUrl: string, sheetName: string, record: any): Promise<boolean> {
-    if (!apiUrl || !apiUrl.startsWith('http')) return false;
+  // Save single record to a sheet
+  async saveRecord(apiUrl: string, sheetName: string, record: any): Promise<{ success: boolean; error?: string }> {
+    if (!apiUrl || !apiUrl.startsWith('http')) return { success: false, error: 'No URL' };
     try {
       await fetch(apiUrl, {
         method: 'POST',
@@ -416,10 +528,70 @@ export const GASService = {
           payload: record,
         }),
       });
-      return true;
-    } catch (e) {
-      console.warn(`GAS saveRecord to ${sheetName} failed:`, e);
-      return false;
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Delete single record
+  async deleteRecord(apiUrl: string, sheetName: string, id: string): Promise<{ success: boolean; error?: string }> {
+    if (!apiUrl || !apiUrl.startsWith('http')) return { success: false, error: 'No URL' };
+    try {
+      await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deleteRecord',
+          sheetName,
+          id,
+        }),
+      });
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Sync data to Google Apps Script if endpoint is configured
+  async syncToSheets(apiUrl: string, payload: any): Promise<{ success: boolean; message: string }> {
+    if (!apiUrl || !apiUrl.startsWith('http')) {
+      return { success: false, message: 'URL Google Apps Script belum diisi atau format URL salah.' };
+    }
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'syncAll',
+          payload: payload,
+        }),
+      });
+      const resData = await response.json();
+      if (resData.status === 'success') {
+        return { success: true, message: 'Seluruh data berhasil disinkronkan ke Google Sheets!' };
+      }
+      return { success: false, message: resData.message || 'Gagal sinkronisasi data.' };
+    } catch (e: any) {
+      console.warn('Google Sheets Sync failed:', e);
+      return { success: false, message: `Gagal sinkronisasi: ${e.message || e}` };
+    }
+  },
+
+  // Trigger remote seed in Apps Script
+  async seedRemoteSheets(apiUrl: string): Promise<{ success: boolean; message: string }> {
+    if (!apiUrl || !apiUrl.startsWith('http')) {
+      return { success: false, message: 'URL Apps Script belum diatur.' };
+    }
+    try {
+      const response = await fetch(`${apiUrl}?action=seedAll`);
+      const data = await response.json();
+      if (data.status === 'success') {
+        return { success: true, message: data.message || 'Data awal berhasil di-seed ke Google Sheets!' };
+      }
+      return { success: false, message: data.message || 'Gagal seed data.' };
+    } catch (e: any) {
+      return { success: false, message: `Gagal menjalankan seed: ${e.message || e}` };
     }
   },
 
@@ -432,31 +604,22 @@ export const GASService = {
       const response = await fetch(`${apiUrl}?action=ping`);
       const data = await response.json();
       if (data.status === 'online') {
-        return { success: true, message: 'Koneksi ke Google Apps Script Web App berhasil!' };
+        return { success: true, message: `Koneksi Berhasil! Terhubung ke ${data.name || 'Google Apps Script'} (${data.school || ''})` };
       }
-      return { success: false, message: `Respon server: ${JSON.stringify(data)}` };
+      return { success: false, message: `Respon server tidak valid: ${JSON.stringify(data)}` };
     } catch (e: any) {
-      return { success: false, message: `Gagal terhubung ke URL Apps Script: ${e.message || e}` };
+      return { success: false, message: `Gagal terhubung ke Google Apps Script: ${e.message || e}` };
     }
   },
 
-  getBackendGSCode(): string {
-    return GAS_CODE_GS;
-  },
-
-  async fetchSheetData(apiUrl: string, sheetName: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    if (!apiUrl || !apiUrl.startsWith('http')) {
-      return { success: false, error: 'URL Google Apps Script belum valid.' };
-    }
-    try {
-      const response = await fetch(`${apiUrl}?action=getAllData`);
-      const data = await response.json();
-      if (data.status === 'success') {
-        return { success: true, data: data.data?.[sheetName] || [] };
-      }
-      return { success: false, error: 'Data tidak berhasil diambil dari Sheets.' };
-    } catch (e: any) {
-      return { success: false, error: e.message || 'Koneksi gagal' };
-    }
+  // Export ready-to-run Code.gs file
+  downloadGASFile() {
+    const code = generateCompleteGASCode();
+    const blob = new Blob([code], { type: 'text/javascript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Code_LMS_Bojonggambir_${new Date().toISOString().split('T')[0]}.gs`;
+    a.click();
   },
 };
