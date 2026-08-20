@@ -255,67 +255,8 @@ export const AdminDashboardPage: React.FC = () => {
     }
     setIsSyncingGas(true);
     
-    // Prepare complete payload
-    const bankSoalArray: any[] = [];
-    allModulesData.forEach((m) => {
-      const qData = allQuizzesData[m.id];
-      if (qData && qData.questions) {
-        qData.questions.forEach((q, idx) => {
-          const optionLabels = ['A', 'B', 'C', 'D'];
-          bankSoalArray.push({
-            ID: q.id || `${m.id}-Q${idx + 1}`,
-            Modul_ID: m.id,
-            Elemen: m.elementId,
-            Nomor_Soal: idx + 1,
-            Soal: q.question,
-            Opsi_A: q.options[0] || '',
-            Opsi_B: q.options[1] || '',
-            Opsi_C: q.options[2] || '',
-            Opsi_D: q.options[3] || '',
-            Kunci_Jawaban: optionLabels[q.correctAnswer] || 'A',
-            Index_Jawaban: q.correctAnswer,
-            Pembahasan: q.explanation || '',
-            Bobot: 1,
-          });
-        });
-      }
-    });
-
-    const payload = {
-      students: students.map((s) => ({
-        ID: s.id,
-        NIS: s.nis,
-        Nama: s.name,
-        Gender: s.gender || 'L',
-        Kelas: s.classGroup,
-        Jurusan: s.jurusan || (s.classGroup === 'X APHP' ? 'APHP' : 'DKV'),
-        XP: s.xp,
-        Level: s.level,
-        StreakDays: s.streakDays,
-        Badges: JSON.stringify(s.badges || []),
-        CompletedModules: JSON.stringify(s.completedModuleIds || []),
-        Notes: JSON.stringify(s.notes || {}),
-      })),
-      materials: allModulesData.map((m) => ({
-        ID_Materi: m.id,
-        Elemen: m.elementId,
-        Nama_Elemen: m.elementName,
-        Modul_Ke: m.moduleNumber,
-        Judul: m.title,
-        Waktu_Menit: m.estimatedTimeMinutes,
-        Tingkat_Kesulitan: m.difficulty,
-        Tujuan_Pembelajaran: (m.objectives || []).join(' | '),
-        Ringkasan: m.summary,
-        Konten_Markdown: m.contentMarkdown ? m.contentMarkdown.slice(0, 3000) : '',
-        Gambar_Url: m.imageUrl || '',
-        Video_Url: m.videoUrl || '',
-        File_Url: m.pdfUrl || '',
-        Status: m.status || 'published',
-        Kelas_Tujuan: m.targetClass || 'ALL',
-        Urutan: m.urutan || m.moduleNumber,
-      })),
-      bankSoal: bankSoalArray,
-    };
+    // Prepare complete database payload covering all 15 tables and sheets
+    const payload = GASService.prepareFullDatabasePayload();
 
     const res = await GASService.syncToSheets(gasUrlInput.trim(), payload);
     setIsSyncingGas(false);
