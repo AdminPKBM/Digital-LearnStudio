@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@layer base {
+  /* Prevent iOS Safari and Android Chrome auto-zoom on input focus */
+  @media screen and (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+
+  /* Safe area handling for modern bezel-less smartphones (iPhone home bar, dynamic island) */
+  :root {
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* Smooth momentum scrolling for mobile horizontal tabs */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Touch target accessibility helper */
+.touch-target-48 {
+  min-height: 48px;
+  min-width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

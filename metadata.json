@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Informatika LearnStudio",
+  "description": "LMS \u0026 PWA Interaktif Informatika Kelas X (Fase E) Kurikulum Merdeka SMKN Bojonggambir",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
