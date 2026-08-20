@@ -72,21 +72,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Username dan Password wajib diisi!' };
     }
 
-    // 1. Optional GAS Remote Verification if configured
+    // 1. Optional GAS Remote Verification with Timeout (fallback immediately if offline/slow)
     const settings = StorageService.getSettings();
     if (settings.gasApiUrl) {
       try {
-        const gasResult = await GASService.fetchSheetData(settings.gasApiUrl, 'Users');
-        if (gasResult && gasResult.success && gasResult.data) {
-          // Sync remote users to local storage if available
+        const timeoutPromise = new Promise<{ success: boolean; data?: any[] }>((resolve) =>
+          setTimeout(() => resolve({ success: false, data: [] }), 2500)
+        );
+        const fetchPromise = GASService.fetchSheetData(settings.gasApiUrl, 'Users');
+        const gasResult = await Promise.race([fetchPromise, timeoutPromise]);
+        
+        if (gasResult && gasResult.success && gasResult.data && Array.isArray(gasResult.data)) {
           gasResult.data.forEach((u: any) => {
-            if (u.ID || u.Username || u.NIS) {
+            if (u.ID || u.Username || u.NIS || u.NIP_NIS) {
+              const uName = u.Username || u.NIS || u.NIP_NIS || '';
+              const uRole = (String(u.Role).toUpperCase() === 'GURU' || String(u.Role).toUpperCase() === 'TEACHER' || String(u.Role).toUpperCase() === 'ADMIN') ? 'GURU' : 'SISWA';
               StorageService.saveUser({
-                id_user: u.ID || `usr-${u.NIS || u.Username}`,
-                username: u.Username || u.NIS || u.NIP_NIS || '',
-                password_hash: u.Password || 'bismillah',
-                nama: u.Name || u.Nama || '',
-                role: (u.Role === 'GURU' || u.Role === 'Guru') ? 'GURU' : 'SISWA',
+                id_user: u.ID || `usr-${uName}`,
+                username: uName,
+                password_hash: u.Password || (uRole === 'GURU' ? 'bismillah123' : 'bismillah'),
+                nama: u.Name || u.Nama || uName,
+                role: uRole,
                 status: u.Status === 'NONAKTIF' ? 'NONAKTIF' : 'AKTIF',
                 email: u.Email,
                 nis: u.NIS || u.NIP_NIS,
