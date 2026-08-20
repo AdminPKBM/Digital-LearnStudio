@@ -249,9 +249,6 @@ export const LoginPage: React.FC = () => {
           <div>
             <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
               <span>PASSWORD</span>
-              {loginMode === 'STUDENT_DROPDOWN' && (
-                <span className="text-slate-400 text-[10px]">Default: bismillah</span>
-              )}
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -261,7 +258,7 @@ export const LoginPage: React.FC = () => {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={loginMode === 'STUDENT_DROPDOWN' ? 'Masukkan Password (default: bismillah)...' : 'Masukkan Password...'}
+                placeholder="Masukkan Password..."
                 className="w-full bg-slate-950 border border-slate-800 text-xs text-white pl-10 pr-10 py-3 rounded-2xl focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition placeholder:text-slate-600 font-medium"
                 required
               />
@@ -291,50 +288,7 @@ export const LoginPage: React.FC = () => {
             )}
           </button>
         </form>
-
-        {/* Quick Credentials Info Box */}
-        <div className="pt-2 border-t border-slate-800/80 space-y-2">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center">
-            Informasi Akun Login:
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-            <div
-              onClick={() => {
-                setLoginMode('MANUAL');
-                setUsername('guru01');
-                setPassword('bismillah123');
-              }}
-              className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-cyan-500/50 transition cursor-pointer group"
-            >
-              <div className="text-cyan-400 font-bold flex items-center justify-between">
-                <span>Akun Guru / Admin</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 group-hover:bg-cyan-500 group-hover:text-slate-950 transition">Klik Isi</span>
-              </div>
-              <div className="text-slate-400 mt-1">Username: <span className="text-white font-mono font-semibold">guru01</span></div>
-              <div className="text-slate-400">Password: <span className="text-white font-mono font-semibold">bismillah123</span></div>
-            </div>
-
-            <div
-              onClick={() => {
-                setLoginMode('STUDENT_DROPDOWN');
-                setSelectedClass('X DKV 1');
-                setPassword('bismillah');
-              }}
-              className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/50 transition cursor-pointer group"
-            >
-              <div className="text-emerald-400 font-bold flex items-center justify-between">
-                <span>Akun 102 Siswa</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 group-hover:bg-emerald-500 group-hover:text-slate-950 transition">Pilih Siswa</span>
-              </div>
-              <div className="text-slate-400 mt-1">Metode: <span className="text-white font-semibold">Pilih Nama & Kelas</span></div>
-              <div className="text-slate-400">Password: <span className="text-white font-mono font-semibold">bismillah</span></div>
-            </div>
-          </div>
-        </div>
-
-
       </div>
     </div>
   );
 };
-
