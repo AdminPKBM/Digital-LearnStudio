@@ -55,13 +55,14 @@ export const JsPlayground: React.FC = () => {
     };
 
     try {
-      const runFn = new Function('console', code);
+      // Safe execution using strict mode so undeclared variable assignments throw clean runtime errors
+      const runFn = new Function('console', `"use strict";\n${code}`);
       runFn(customConsole);
       capturedLogs.push('⚡ Program berhasil dieksekusi tanpa error.');
       // Unlock badge Coding Beginner
       addXP(15, 'Run JS Code Playground');
     } catch (err: any) {
-      capturedLogs.push(`❌ SINTAKS ERROR: ${err.message}`);
+      capturedLogs.push(`❌ SINTAKS / RUNTIME ERROR: ${err.message}`);
     }
 
     setLogs(capturedLogs);
