@@ -49,15 +49,38 @@ export const JsPlayground: React.FC = () => {
       log: (...args: any[]) => {
         capturedLogs.push(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
       },
+      info: (...args: any[]) => {
+        capturedLogs.push(`ℹ️ INFO: ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`);
+      },
+      warn: (...args: any[]) => {
+        capturedLogs.push(`⚠️ WARN: ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`);
+      },
       error: (...args: any[]) => {
-        capturedLogs.push(`❌ ERROR: ${args.join(' ')}`);
+        capturedLogs.push(`❌ ERROR: ${args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')}`);
       },
     };
 
     try {
-      // Safe execution using strict mode so undeclared variable assignments throw clean runtime errors
-      const runFn = new Function('console', `"use strict";\n${code}`);
-      runFn(customConsole);
+      // Heavily sandboxed scope to isolate user code from Window globals and prevent getter mutation errors
+      const sandboxGlobals = {
+        console: customConsole,
+        fetch: undefined,
+        window: Object.freeze({}),
+        document: Object.freeze({}),
+        globalThis: Object.freeze({}),
+        self: Object.freeze({}),
+        top: undefined,
+        parent: undefined,
+        XMLHttpRequest: undefined,
+        WebSocket: undefined,
+      };
+
+      const paramNames = Object.keys(sandboxGlobals);
+      const paramValues = Object.values(sandboxGlobals);
+
+      // Execute in strict mode with shadowed parameters
+      const runFn = new Function(...paramNames, `"use strict";\n${code}`);
+      runFn(...paramValues);
       capturedLogs.push('⚡ Program berhasil dieksekusi tanpa error.');
       // Unlock badge Coding Beginner
       addXP(15, 'Run JS Code Playground');
